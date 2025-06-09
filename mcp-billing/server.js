@@ -1,4 +1,4 @@
-// server.js - Complete MCP Billing Server
+// server.js - Complete MCP Billing Server with Debug Mode
 // This handles everything automatically - just add your settings!
 
 require('dotenv').config();
@@ -16,6 +16,38 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
+
+// === DEBUG: Error Handlers ===
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+});
+
+// === DEBUG: Test Connections ===
+console.log('🔍 Testing connections...');
+
+// Test Supabase
+console.log('Testing Supabase connection...');
+supabase
+  .from('users')
+  .select('count')
+  .single()
+  .then(result => {
+    console.log('✅ Supabase connected successfully');
+  })
+  .catch(error => {
+    console.error('❌ Supabase connection error:', error.message);
+    console.error('Make sure you ran the SQL to create tables in Supabase!');
+  });
+
+// Test Stripe
+console.log('Testing Stripe connection...');
+stripe.prices.list({ limit: 1 })
+  .then(() => console.log('✅ Stripe connected successfully'))
+  .catch(err => console.error('❌ Stripe connection error:', err.message));
 
 // Middleware
 app.use(cors());
@@ -51,50 +83,103 @@ function generateApiToken() {
 }
 
 async function validateToken(token) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('*, usage_tracking(total_executions)')
-    .eq('api_token', token)
-    .single();
-  
-  if (error || !data) return null;
-  
-  // Get current month usage
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const usage = data.usage_tracking?.find(u => u.month === currentMonth);
-  
-  return {
-    ...data,
-    currentUsage: usage?.total_executions || 0
-  };
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*, usage_tracking(total_executions)')
+      .eq('api_token', token)
+      .single();
+    
+    if (error || !data) return null;
+    
+    // Get current month usage
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const usage = data.usage_tracking?.find(u => u.month === currentMonth);
+    
+    return {
+      ...data,
+      currentUsage: usage?.total_executions || 0
+    };
+  } catch (err) {
+    console.error('Token validation error:', err);
+    return null;
+  }
 }
 
 async function trackUsage(userId, subscriptionItemId, currentUsage, includedExecutions) {
-  const month = new Date().toISOString().slice(0, 7);
-  
-  // Update usage count
-  const { error } = await supabase
-    .from('usage_tracking')
-    .upsert({
-      user_id: userId,
-      month: month,
-      total_executions: currentUsage + 1
-    });
-  
-  // If over included amount, report to Stripe
-  if (currentUsage >= includedExecutions) {
-    try {
-      await stripe.subscriptionItems.createUsageRecord(
-        subscriptionItemId,
-        { quantity: 1 }
-      );
-    } catch (err) {
-      console.error('Stripe usage report error:', err);
+  try {
+    const month = new Date().toISOString().slice(0, 7);
+    
+    // Update usage count
+    const { error } = await supabase
+      .from('usage_tracking')
+      .upsert({
+        user_id: userId,
+        month: month,
+        total_executions: currentUsage + 1
+      });
+    
+    if (error) {
+      console.error('Usage tracking error:', error);
     }
+    
+    // If over included amount, report to Stripe
+    if (currentUsage >= includedExecutions && subscriptionItemId) {
+      try {
+        await stripe.subscriptionItems.createUsageRecord(
+          subscriptionItemId,
+          { quantity: 1 }
+        );
+      } catch (err) {
+        console.error('Stripe usage report error:', err);
+      }
+    }
+  } catch (err) {
+    console.error('Track usage error:', err);
   }
 }
 
 // === API ENDPOINTS ===
+
+// Debug endpoint
+app.get('/debug', (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  
+  const publicPath = path.join(__dirname, 'public');
+  let files = [];
+  
+  try {
+    if (fs.existsSync(publicPath)) {
+      files = fs.readdirSync(publicPath);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  
+  res.json({
+    message: 'Debug info',
+    serverStatus: 'running',
+    publicFolderExists: fs.existsSync(publicPath),
+    filesInPublic: files,
+    workingDirectory: __dirname,
+    environment: {
+      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
+      hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
+      appUrl: process.env.APP_URL,
+      nodeEnv: process.env.NODE_ENV
+    }
+  });
+});
+
+// Test endpoint
+app.get('/test', (req, res) => {
+  res.json({ 
+    status: 'Server is working!',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Home page
 app.get('/', (req, res) => {
@@ -116,6 +201,8 @@ app.post('/api/create-checkout', async (req, res) => {
       return res.status(400).json({ error: 'Invalid plan' });
     }
     
+    console.log('Creating checkout for plan:', plan);
+    
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
@@ -131,7 +218,7 @@ app.post('/api/create-checkout', async (req, res) => {
     res.json({ url: session.url });
   } catch (error) {
     console.error('Checkout error:', error);
-    res.status(500).json({ error: 'Failed to create checkout' });
+    res.status(500).json({ error: 'Failed to create checkout: ' + error.message });
   }
 });
 
@@ -139,6 +226,11 @@ app.post('/api/create-checkout', async (req, res) => {
 app.get('/success', async (req, res) => {
   try {
     const { session_id } = req.query;
+    
+    if (!session_id) {
+      return res.status(400).send('Missing session ID');
+    }
+    
     const session = await stripe.checkout.sessions.retrieve(session_id);
     const subscription = await stripe.subscriptions.retrieve(session.subscription);
     
@@ -168,7 +260,10 @@ app.get('/success', async (req, res) => {
           included_executions: plan.includedExecutions
         });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error creating user:', error);
+        throw error;
+      }
     }
     
     // Beautiful success page
@@ -318,21 +413,31 @@ app.post('/webhooks/stripe', async (req, res) => {
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
+    console.error('Webhook signature verification failed:', err);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
   
-  if (event.type === 'customer.subscription.deleted') {
-    // Cancel subscription in database
-    const subscription = event.data.object;
-    await supabase
-      .from('users')
-      .update({ subscription_item_id: null })
-      .eq('stripe_customer_id', subscription.customer);
+  try {
+    if (event.type === 'customer.subscription.deleted') {
+      // Cancel subscription in database
+      const subscription = event.data.object;
+      await supabase
+        .from('users')
+        .update({ subscription_item_id: null })
+        .eq('stripe_customer_id', subscription.customer);
+    }
+    
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Webhook processing error:', err);
+    res.status(500).json({ error: 'Webhook processing failed' });
   }
-  
-  res.json({ received: true });
 });
 
+// === TEMPORARILY DISABLED MCP PROXY ===
+// Uncomment this section when ready to test with n8n
+
+/*
 // MCP Proxy - This forwards requests to your n8n
 const mcpProxy = createProxyMiddleware({
   target: process.env.N8N_URL,
@@ -380,6 +485,21 @@ const mcpProxy = createProxyMiddleware({
 });
 
 app.use('/mcp', mcpProxy);
+*/
+
+// Temporary MCP test endpoint
+app.get('/mcp/test', (req, res) => {
+  res.json({ 
+    message: 'MCP endpoint is ready but proxy is disabled for debugging',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Express error:', err);
+  res.status(500).json({ error: 'Internal server error', message: err.message });
+});
 
 // Start server
 const PORT = process.env.PORT || 3000;
@@ -390,6 +510,11 @@ app.listen(PORT, () => {
     Local: http://localhost:${PORT}
     Pricing: ${process.env.APP_URL}/pricing.html
     
-    Make sure all environment variables are set!
+    Debug endpoints:
+    - ${process.env.APP_URL}/test
+    - ${process.env.APP_URL}/debug
+    - ${process.env.APP_URL}/mcp/test
+    
+    MCP Proxy: TEMPORARILY DISABLED FOR DEBUGGING
   `);
 });
