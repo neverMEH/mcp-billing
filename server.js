@@ -20,7 +20,6 @@ const supabase = createClient(
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
 app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
 
 // === PRICING CONFIGURATION ===
@@ -96,19 +95,229 @@ async function trackUsage(userId, subscriptionItemId, currentUsage, includedExec
 
 // === API ENDPOINTS ===
 
-// Home page
+// Home page AND pricing page - no more static files!
 app.get('/', (req, res) => {
-  res.redirect('/pricing.html');
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>MCP API - Pricing</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                padding: 20px;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 20px;
+                overflow: hidden;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            }
+            .header {
+                background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+                color: white;
+                padding: 60px 40px;
+                text-align: center;
+            }
+            .header h1 {
+                font-size: 3rem;
+                margin-bottom: 15px;
+                font-weight: 700;
+            }
+            .header p {
+                font-size: 1.2rem;
+                opacity: 0.9;
+            }
+            .plans {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 30px;
+                padding: 60px 40px;
+            }
+            .plan {
+                border: 2px solid #e2e8f0;
+                border-radius: 15px;
+                padding: 40px 30px;
+                text-align: center;
+                transition: all 0.3s ease;
+                position: relative;
+            }
+            .plan:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 15px 30px rgba(0,0,0,0.1);
+            }
+            .plan.popular {
+                border-color: #48bb78;
+                background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+                transform: scale(1.05);
+            }
+            .plan.popular::before {
+                content: "Most Popular";
+                position: absolute;
+                top: -15px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #48bb78;
+                color: white;
+                padding: 8px 20px;
+                border-radius: 20px;
+                font-size: 0.9rem;
+                font-weight: 600;
+            }
+            .plan h2 {
+                color: #2d3748;
+                font-size: 1.8rem;
+                margin-bottom: 15px;
+            }
+            .price {
+                font-size: 3rem;
+                font-weight: 700;
+                color: #4a5568;
+                margin-bottom: 10px;
+            }
+            .price-period {
+                color: #718096;
+                margin-bottom: 30px;
+            }
+            .features {
+                list-style: none;
+                margin-bottom: 40px;
+            }
+            .features li {
+                padding: 8px 0;
+                color: #4a5568;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            .features li:last-child {
+                border-bottom: none;
+            }
+            .btn {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 15px 40px;
+                border: none;
+                border-radius: 10px;
+                font-size: 1.1rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                width: 100%;
+            }
+            .btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            }
+            .btn:active {
+                transform: translateY(0);
+            }
+            .footer {
+                background: #f7fafc;
+                padding: 40px;
+                text-align: center;
+                color: #718096;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>MCP API</h1>
+                <p>Powerful AI tools for Claude Desktop with usage-based pricing</p>
+            </div>
+            
+            <div class="plans">
+                <div class="plan">
+                    <h2>Starter</h2>
+                    <div class="price">$19</div>
+                    <div class="price-period">per month</div>
+                    <ul class="features">
+                        <li>✅ Access to all MCP tools</li>
+                        <li>✅ $0.05 per execution</li>
+                        <li>✅ Instant API token</li>
+                        <li>✅ Email support</li>
+                        <li>✅ Cancel anytime</li>
+                    </ul>
+                    <button class="btn" onclick="subscribe('starter')">Get Started</button>
+                </div>
+
+                <div class="plan popular">
+                    <h2>Pro</h2>
+                    <div class="price">$49</div>
+                    <div class="price-period">per month</div>
+                    <ul class="features">
+                        <li>✅ 2,000 included executions</li>
+                        <li>✅ $0.04 per additional execution</li>
+                        <li>✅ Priority support</li>
+                        <li>✅ Advanced features</li>
+                        <li>✅ Usage dashboard</li>
+                    </ul>
+                    <button class="btn" onclick="subscribe('pro')">Get Started</button>
+                </div>
+
+                <div class="plan">
+                    <h2>Scale</h2>
+                    <div class="price">$199</div>
+                    <div class="price-period">per month</div>
+                    <ul class="features">
+                        <li>✅ 10,000 included executions</li>
+                        <li>✅ $0.03 per additional execution</li>
+                        <li>✅ Premium support</li>
+                        <li>✅ Custom integrations</li>
+                        <li>✅ Team management</li>
+                    </ul>
+                    <button class="btn" onclick="subscribe('scale')">Get Started</button>
+                </div>
+            </div>
+            
+            <div class="footer">
+                <p><strong>All plans include:</strong> Instant setup, secure API tokens, and access to manage your subscription anytime.</p>
+                <p>Questions? Contact support at your-email@domain.com</p>
+            </div>
+        </div>
+
+        <script>
+            async function subscribe(plan) {
+                try {
+                    const response = await fetch('/api/create-checkout', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ plan: plan })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.url) {
+                        window.location.href = data.url;
+                    } else {
+                        alert('Error creating checkout. Please try again.');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error processing request. Please try again.');
+                }
+            }
+        </script>
+    </body>
+    </html>
+  `);
 });
 
-// ADD THIS NEW ROUTE
+// Also handle /pricing and /pricing.html for backwards compatibility
 app.get('/pricing', (req, res) => {
-  res.redirect('/pricing.html');
+  res.redirect('/');
 });
 
-// Create checkout session
-app.post('/api/create-checkout', async (req, res) => {
-  // ... existing code
+app.get('/pricing.html', (req, res) => {
+  res.redirect('/');
 });
 
 // Create checkout session
@@ -129,7 +338,7 @@ app.post('/api/create-checkout', async (req, res) => {
         { price: selectedPlan.meterPrice }
       ],
       success_url: `${process.env.APP_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.APP_URL}/pricing.html`,
+      cancel_url: `${process.env.APP_URL}/`,
       metadata: { plan }
     });
     
@@ -182,6 +391,8 @@ app.get('/success', async (req, res) => {
       <html>
       <head>
         <title>Welcome to MCP API!</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
           body {
             font-family: -apple-system, Arial, sans-serif;
@@ -238,7 +449,10 @@ app.get('/success', async (req, res) => {
             padding: 12px 30px;
             text-decoration: none;
             border-radius: 8px;
-            margin-top: 20px;
+            margin: 10px 10px 10px 0;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
           }
           .button:hover {
             background: #5a67d8;
@@ -268,8 +482,7 @@ app.get('/success', async (req, res) => {
           <div class="token-box">
             <h3>🔑 Your API Token:</h3>
             <div class="token">${apiToken}</div>
-            <button onclick="navigator.clipboard.writeText('${apiToken}').then(() => alert('Token copied!'));" 
-                    style="background: #4a5568; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
+            <button class="button" onclick="copyToClipboard('${apiToken}')">
               Copy Token
             </button>
           </div>
@@ -303,9 +516,27 @@ app.get('/success', async (req, res) => {
             </ol>
           </div>
           
+          <a href="/" class="button">← Back to Pricing</a>
           <a href="https://billing.stripe.com/p/login/${process.env.STRIPE_CUSTOMER_PORTAL_ID || ''}" 
              class="button">Manage Subscription</a>
         </div>
+        
+        <script>
+          function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+              alert('Token copied to clipboard!');
+            }).catch(() => {
+              // Fallback for older browsers
+              const textArea = document.createElement('textarea');
+              textArea.value = text;
+              document.body.appendChild(textArea);
+              textArea.select();
+              document.execCommand('copy');
+              document.body.removeChild(textArea);
+              alert('Token copied to clipboard!');
+            });
+          }
+        </script>
       </body>
       </html>
     `);
@@ -393,7 +624,7 @@ app.listen(PORT, () => {
     🚀 MCP Billing Server is running!
     
     Local: http://localhost:${PORT}
-    Pricing: ${process.env.APP_URL}/pricing.html
+    Pricing: ${process.env.APP_URL}/
     
     Make sure all environment variables are set!
   `);
