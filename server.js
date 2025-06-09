@@ -339,7 +339,10 @@ app.post('/api/create-checkout', async (req, res) => {
       ],
       success_url: `${process.env.APP_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.APP_URL}/`,
-      metadata: { plan }
+      metadata: { plan },
+      customer_email: req.body.email, // Optional: if you want to pre-fill email
+      billing_address_collection: 'required', // This ensures we get customer info
+      customer_creation: 'always' // Always create a customer
     });
     
     res.json({ url: session.url });
@@ -356,6 +359,20 @@ app.get('/success', async (req, res) => {
     const session = await stripe.checkout.sessions.retrieve(session_id);
     const subscription = await stripe.subscriptions.retrieve(session.subscription);
     
+    // Get customer details to ensure we have the email
+    const customer = await stripe.customers.retrieve(session.customer);
+    const customerEmail = customer.email || session.customer_details?.email || session.customer_email;
+    
+    if (!customerEmail) {
+      console.error('No email found for customer:', {
+        customer_id: session.customer,
+        session_customer_email: session.customer_email,
+        customer_details_email: session.customer_details?.email,
+        customer_object_email: customer.email
+      });
+      throw new Error('Customer email not found');
+    }
+    
     // Check if user already exists
     const { data: existingUser } = await supabase
       .from('users')
@@ -371,18 +388,36 @@ app.get('/success', async (req, res) => {
       apiToken = generateApiToken();
       const plan = PLANS[session.metadata.plan];
       
+      // Find the metered subscription item
+      console.log('Subscription items:', subscription.items.data);
+      const meteredItem = subscription.items.data.find(item => 
+        item.price.id === plan.meterPrice
+      );
+      
+      if (!meteredItem) {
+        console.error('Metered item not found:', {
+          plan: session.metadata.plan,
+          expected_meter_price: plan.meterPrice,
+          actual_items: subscription.items.data.map(item => item.price.id)
+        });
+        throw new Error('Subscription setup error - metered item not found');
+      }
+      
       const { error } = await supabase
         .from('users')
         .insert({
-          email: session.customer_email,
+          email: customerEmail,
           api_token: apiToken,
           stripe_customer_id: session.customer,
-          subscription_item_id: subscription.items.data[1].id, // Metered item
+          subscription_item_id: meteredItem.id, // Use the found metered item
           tier: session.metadata.plan,
           included_executions: plan.includedExecutions
         });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Database insert error:', error);
+        throw error;
+      }
     }
     
     // Beautiful success page
@@ -542,7 +577,27 @@ app.get('/success', async (req, res) => {
     `);
   } catch (error) {
     console.error('Success page error:', error);
-    res.status(500).send('Error processing subscription. Please contact support.');
+    console.error('Error details:', {
+      session_id: req.query.session_id,
+      error_message: error.message,
+      error_code: error.code,
+      timestamp: new Date().toISOString()
+    });
+    res.status(500).send(`
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px;">
+        <h2>⚠️ Processing Error</h2>
+        <p>There was an issue processing your subscription. Don't worry - your payment was successful!</p>
+        <p><strong>What happened:</strong> ${error.message}</p>
+        <p><strong>Next steps:</strong></p>
+        <ul>
+          <li>Contact support with your session ID: <code>${req.query.session_id}</code></li>
+          <li>We'll manually provision your API token within 24 hours</li>
+          <li>Your subscription is active in Stripe</li>
+        </ul>
+        <p><strong>Support:</strong> your-email@domain.com</p>
+        <a href="/" style="background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">← Back to Home</a>
+      </div>
+    `);
   }
 });
 
