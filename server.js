@@ -11,10 +11,10 @@ const cors = require('cors');
 
 const app = express();
 
-// Connect to Supabase
+// Connect to Supabase with service key for server operations
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_KEY  // Service key bypasses RLS
 );
 
 // Middleware
