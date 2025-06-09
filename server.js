@@ -340,9 +340,8 @@ app.post('/api/create-checkout', async (req, res) => {
       success_url: `${process.env.APP_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.APP_URL}/`,
       metadata: { plan },
-      customer_email: req.body.email, // Optional: if you want to pre-fill email
-      billing_address_collection: 'required', // This ensures we get customer info
-      customer_creation: 'always' // Always create a customer
+      billing_address_collection: 'required', // This ensures we collect customer info
+      customer_email: req.body.email || undefined // Optional: pre-fill if provided
     });
     
     res.json({ url: session.url });
