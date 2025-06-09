@@ -101,6 +101,16 @@ app.get('/', (req, res) => {
   res.redirect('/pricing.html');
 });
 
+// ADD THIS NEW ROUTE
+app.get('/pricing', (req, res) => {
+  res.redirect('/pricing.html');
+});
+
+// Create checkout session
+app.post('/api/create-checkout', async (req, res) => {
+  // ... existing code
+});
+
 // Create checkout session
 app.post('/api/create-checkout', async (req, res) => {
   try {
